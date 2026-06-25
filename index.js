@@ -4,8 +4,12 @@ const { WebSocketServer } = require("ws");
 const fs = require("fs");
 const path = require("path");
 
-const logsDir =
-  "C:/Users/JeyJus/Saved Games/Frontier Developments/Elite Dangerous";
+const logsDir = path.join(
+  process.env.USERPROFILE,
+  "Saved Games",
+  "Frontier Developments",
+  "Elite Dangerous"
+);
 
 const scanInterval = 500;
 
