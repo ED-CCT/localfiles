@@ -107,6 +107,11 @@ wss.on("connection", (ws) => {
 
       // rozsyłaj do innych klientów
       broadcast(packet);
+	  broadcast({
+		type: "LIVE_DATA",
+		data: result,
+		event: eventName,
+	  });
 
     } catch (err) {
       console.error("WS message error:", err);
