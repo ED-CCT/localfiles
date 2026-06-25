@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Realtime Table</title>
+		<style>
+			body {
+				margin: 0;
+				font-family: Arial, sans-serif;
+				background: #0f1115;
+				color: #e6e6e6;
+			}
+
+			header {
+				padding: 12px 16px;
+				background: #151922;
+				position: sticky;
+				top: 0;
+				border-bottom: 1px solid #2a2f3a;
+			}
+
+			h1 {
+				font-size: 18px;
+				margin: 0;
+			}
+
+			#status {
+				font-size: 12px;
+				color: #8aa0b6;
+			}
+
+			#container {
+				padding: 12px;
+				display: flex;
+				flex-direction: column;
+				gap: 16px;
+			}
+
+			.system {
+				background: #151922;
+				border: 1px solid #2a2f3a;
+				border-radius: 10px;
+				padding: 10px;
+			}
+
+			.system h3 {
+				margin: 0 0 10px 0;
+				font-size: 16px;
+				color: #9ad1ff;
+			}
+
+			table {
+				width: 100%;
+				border-collapse: collapse;
+				border-radius: 8px;
+				overflow: hidden;
+			}
+
+			th,
+			td {
+				padding: 8px;
+				text-align: left;
+				font-size: 13px;
+			}
+
+			th {
+				background: #1b2130;
+				color: #bcd6ff;
+				position: sticky;
+				top: 0;
+			}
+
+			tr {
+				border-bottom: 1px solid #2a2f3a;
+			}
+
+			tr:hover {
+				background: #1a1f2a;
+			}
+
+			.good {
+				color: #4cd137;
+			}
+
+			.bad {
+				color: #ff6b6b;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="container"></div>
+		<script>
+			const ws = new WebSocket(`ws://${location.hostname}:80`);
+			const container = document.getElementById("container");
+			let lastData = null;
+			// ================= STATUS =================
+			ws.onopen = () => {console.log("Connected ✔");};
+			ws.onclose = () => {console.log("Disconnected ✖");};
+			ws.onerror = () => {console.log("Error ⚠");};
+			// ================= NORMALIZE =================
+			function normKey(str) {
+				return (str || "")
+					.toLowerCase()
+					.replace(/[\s_-]+/g, "");
+			}
+			// ================= RENDER =================
+			const collapsedState = new Map();
+			function renderTable(data) {
+				container.innerHTML = "";
+				const claims = data.colonisationClaims || [];
+				const shipMap = new Map(data.shipcargo || []);
+				const fcCargo = new Map(data.fcCargo || []);
+				const Market = new Map(data.Market || []);
+				const NextSystems = new Map(data.NextSystems.map(item => [item.ForSystemName, item.NextSystemName]));
+				const marketTotals = new Map();
+				let nextsys = true;
+				let top5 = [];
+				for (const claim of claims) {
+					for (const station of (claim.DockedStations || [])) {
+						for (const need of (station.ResourcesRequired || [])) {
+							const key = normKey(need.Name_Localised);
+							if (!marketTotals.has(key)) {
+								marketTotals.set(key, {
+									name: need.Name_Localised,
+									required: 0,
+									provided: 0
+								});
+							}
+							const item = marketTotals.get(key);
+							item.required += need.RequiredAmount || 0;
+							item.provided += need.ProvidedAmount || 0;
+							const marketAmount = Market.get(key) || 0;
+							const ship = shipMap.get(key) || 0;
+							const fc = fcCargo.get(key) || 0;
+							const missing =
+								item.required -
+								item.provided -
+								ship -
+								fc;
+							if (missing > 0 && marketAmount > 0) {nextsys = false;}
+						}
+					}
+				}
+				if (nextsys === true) {// mapa key -> id
+					top5 = [...marketTotals.entries()]
+						.map(([key, item]) => {
+							const fcAmount = fcCargo.get(key) || 0;
+							const shipAmount = shipMap.get(key) || 0;
+							const demand = (item.required || 0) - (item.provided || 0) - fcAmount - shipAmount;
+							return {
+								key,
+								name: item.name,
+								demand: demand
+							};
+						})
+						.filter(x => x.demand > 0)
+						.sort((a, b) => b.demand - a.demand)
+						.slice(0, 5);
+				} else {
+					const marketSection = document.createElement("div");
+					marketSection.className = "system";
+					marketSection.innerHTML = `
+						<h3></h3>
+						<table>
+							<thead>
+								<tr>
+									<th>Material</th>
+									<th>Missing</th>
+									<th>Market</th>
+								</tr>
+							</thead>
+							<tbody></tbody>
+						</table>
+					`;
+					const rowroute = marketSection.querySelector("h3");
+					const marketBody = marketSection.querySelector("tbody");
+					const marketRows = [];
+					let marketroute = 0;
+					for (const [key, item] of marketTotals) {
+						const marketAmount = Market.get(key) || 0;
+						const ship = shipMap.get(key) || 0;
+						const fc = fcCargo.get(key) || 0;
+						const missing =
+							item.required -
+							item.provided -
+							ship -
+							fc;
+						if (missing <= 0 || marketAmount <= 0) continue;
+						marketroute = marketroute + missing;
+						const row = document.createElement("tr");
+						row.innerHTML = `
+							<td>${item.name}</td>
+							<td class="bad">${missing}</td>
+							<td class="${marketAmount >= missing ? "good" : "bad"}">
+								${marketAmount}
+							</td>
+						`;
+
+						row.sortValue = missing;
+						marketRows.push(row);
+					}
+					marketRows.sort((a, b) => a.sortValue - b.sortValue);
+					rowroute.innerText = `
+						🛒 Market Summary | Courses left: ${Math.ceil(marketroute / 1232)}
+					`;
+					marketRows.forEach(row => marketBody.appendChild(row));
+					container.appendChild(marketSection);
+				}
+				for (const claim of claims) {
+					if (nextsys === true) {
+						const key = claim.StarSystem;
+						const marketSection = document.createElement("div");
+						marketSection.className = "system";
+						if (NextSystems.get(key)) {
+							marketSection.innerHTML = `
+								<h3><a> Missing commodities for</a><a style="color: #4cd137;"> ${claim.StarSystem}</a> → ${NextSystems.get(key)}</h3>
+							`;
+						} else {
+							let stationsHtml = `<p>${claim.StarSystem}</p>`;
+							for (const station of (claim.DockedStations || [])) {
+								stationsHtml += `<p>- ${station.StationName}</p>`;
+							}
+
+							marketSection.innerHTML = `
+								<h3>
+									<a>Commodities collected</a>
+									→ Deliver to:
+								</h3>
+								${stationsHtml}
+							`;
+						}
+						container.appendChild(marketSection);
+					}
+					const systemDiv = document.createElement("div");
+					systemDiv.className = "system";
+					// =====================================
+					// COLLAPSE STATE
+					// =====================================
+					let collapsed = collapsedState.get(claim.StarSystem) ?? true;
+					const title = document.createElement("h3");
+					title.style.cursor = "pointer";
+					const wrapper = document.createElement("div");
+					wrapper.style.display = collapsed ? "none" : "block";
+					title.textContent =
+						(collapsed ? "► " : "▼ ") + claim.StarSystem;
+
+					title.onclick = () => {
+						collapsed = !collapsed;
+						collapsedState.set(claim.StarSystem, collapsed);
+
+						wrapper.style.display = collapsed ? "none" : "block";
+						title.textContent =
+							(collapsed ? "► " : "▼ ") + claim.StarSystem;
+					};
+					systemDiv.appendChild(title);
+					// =====================================
+					// SYSTEM TOTALS (SUMA WSZYSTKICH STACJI)
+					// =====================================
+					const systemTotals = new Map();
+					for (const station of (claim.DockedStations || [])) {
+						for (const need of (station.ResourcesRequired || [])) {
+
+							const key = normKey(need.Name_Localised);
+
+							if (!systemTotals.has(key)) {
+								systemTotals.set(key, {
+									Type: need.Name_Localised,
+									Required: 0,
+									Provided: 0
+								});
+							}
+
+							const mat = systemTotals.get(key);
+
+							mat.Required += need.RequiredAmount || 0;
+							mat.Provided += need.ProvidedAmount || 0;
+						}
+					}
+					// =====================================
+					// STACJE
+					// =====================================
+					for (const station of (claim.DockedStations || [])) {
+						const stationWrap = document.createElement("div");
+						stationWrap.style.marginTop = "10px";
+						const stationTitle = document.createElement("h4");
+						const normalRows = [];
+						const endRows = [];
+						let missingstation = 0;
+						for (const need of (station.ResourcesRequired || [])) {
+							const key = normKey(need.Name_Localised);
+							const ship = shipMap.get(key) || 0;
+							const fc = fcCargo.get(key) || 0;
+							const market = Market.get(key) || 0;
+							const systemNeed = systemTotals.get(key)?.Required || 0;
+							const stationNeed = need.RequiredAmount - need.ProvidedAmount || 0;
+							const systemProvided = systemTotals.get(key)?.Provided || 0;
+							const missing =
+								systemNeed -
+								systemProvided -
+								ship -
+								fc;
+							const have =
+								systemProvided +
+								ship +
+								fc;
+								missingstation = missingstation + (need.RequiredAmount - need.ProvidedAmount - ship);
+							if ((need.RequiredAmount - need.ProvidedAmount) <= 0) continue;
+							const row = document.createElement("tr");
+							const difference = need.RequiredAmount - need.ProvidedAmount;
+							
+							row.innerHTML = `
+								<td>${need.Name_Localised}</td>
+								<td>${ship}</td>
+								<td>${fc}</td>
+								<td class="${need.ProvidedAmount === need.RequiredAmount || ship === need.RequiredAmount || (ship + need.ProvidedAmount) === need.RequiredAmount ? "good" : "bad"}">${need.RequiredAmount - need.ProvidedAmount}</td>
+								
+							`;
+							row.sortValue = difference;
+							if (difference <= 0) {
+								endRows.push(row);
+							} else {
+								normalRows.push(row);
+							}
+						}
+						stationTitle.textContent = `${station.StationName} | Courses left: ${Math.ceil(missingstation / 1232)}`;
+						stationWrap.appendChild(stationTitle);
+						const table = document.createElement("table");
+						table.innerHTML = `
+							<thead>
+								<tr>
+									<th>Type</th>
+									<th>Ship</th>
+									<th>FC</th>
+									<th>Station</th>
+								</tr>
+							</thead>
+							<tbody></tbody>
+						`;
+						const tbody = table.querySelector("tbody");
+						normalRows.sort((a, b) => a.sortValue - b.sortValue);
+						normalRows.forEach(row => tbody.appendChild(row));
+						endRows.forEach(row => tbody.appendChild(row));
+						stationWrap.appendChild(table);
+						wrapper.appendChild(stationWrap);
+					}
+					systemDiv.appendChild(wrapper);
+					container.appendChild(systemDiv);
+				}
+			}
+			// ================= WS =================
+			ws.onmessage = (msg) => {
+				const packet = JSON.parse(msg.data);
+				if (packet.type === "TABLE_UPDATE") {
+				    console.log(packet.type);
+					lastData = packet.data;
+					renderTable(lastData);
+				}
+			};
+		</script>
+	</body>
+</html>

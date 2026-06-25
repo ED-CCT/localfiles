@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+<title>ED-CCT</title>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+<style>
+*{
+  margin:0;
+  padding:0;
+  box-sizing:border-box;
+}
+
+body{
+  background:#05070a;
+  font-family:Arial, Helvetica, sans-serif;
+  color:#d7e1ea;
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  padding:20px;
+}
+
+.container{
+  width:100%;
+  max-width:1000px;
+}
+
+.card{
+  background:rgba(10,15,20,.96);
+  border:1px solid rgba(255,255,255,.4);
+  border-radius: 0 0.5vw 0.5vw 0;
+  padding:0.6vw;
+}
+
+.hidden{ display:none; }
+
+input{
+  width:100%;
+  padding:12px;
+  margin-top:10px;
+  background:#111820;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:8px;
+  color:white;
+}
+
+button{
+  margin-top:12px;
+  padding:11px 18px;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+  background:#ff9800;
+  color:black;
+  font-weight:bold;
+}
+
+.secondary{
+  background:#1d2733;
+  color:white;
+}
+
+.status{ margin-top:12px; color:#ffb347; }
+
+pre{
+  white-space:pre-wrap;
+  word-break:break-word;
+  background:#0b1118;
+  padding:10px;
+  border-radius:8px;
+  margin-top:10px;
+  max-height:70vh;
+  overflow:auto;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<h1>ED-CCT</h1>
+<h2>Elite Dangerous Tracker</h2>
+
+<div id="authBox" class="card">
+  <h3>Login / Register</h3>
+
+  <input id="email" type="email" placeholder="Email"/>
+  <input id="password" type="password" placeholder="Password"/>
+
+  <button onclick="register()">Register</button>
+  <button class="secondary" onclick="login()">Login</button>
+
+  <div id="authStatus" class="status"></div>
+</div>
+
+<div id="dashboard" class="card hidden">
+  <h3>Commander Dashboard</h3>
+
+  <p id="userEmail"></p>
+  <p id="frontierStatus">Checking Frontier...</p>
+
+  <button class="secondary" onclick="logout()">Logout</button>
+
+  <div id="dashStatus" class="status"></div>
+</div>
+
+<div id="profileBox" class="card hidden">
+  <h3>/data (RAW JSON)</h3>
+  <pre id="claimlist">Loading...</pre>
+  <pre id="shipcargo">Loading...</pre>
+  <pre id="fleetcarriercargo">Loading...</pre>
+</div>
+
+</div>
+
+<script>
+
+// ================= WEBSOCKET =================
+const API = "https://cargo.jeyjusvideo.workers.dev";
+
+let session = null;
+
+const state = {
+  colonisationClaims: [],
+  shipcargo: [],
+  Market: [],
+  fcCargo: new Map(),
+  localMap: new Map()
+};
+// ================= SAFE FETCH =================
+async function apiFetch(path, options = {}){
+
+  const opts = {
+    credentials: "include",
+    ...options
+  };
+
+  opts.headers = {
+    ...(options.headers || {})
+  };
+
+  if(session){
+    opts.headers.Authorization = "Bearer " + session;
+  }
+
+  const res = await fetch(API + path, opts);
+
+  if(res.status === 401){
+    sessionStorage.removeItem("auth_session");
+    session = null;
+
+    document.getElementById("dashboard").classList.add("hidden");
+    document.getElementById("profileBox").classList.add("hidden");
+    document.getElementById("authBox").classList.remove("hidden");
+  }
+
+  return res;
+}
+
+const translationMap = {
+  "advancedcatalysers": "61",
+  "advancedmedicines": "166",
+  "agrimedicines": "1",
+  "agronomictreatment": "10268",
+  "airelics": "89",
+  "alexandrite": "10249",
+  "algae": "15",
+  "aluminium": "37",
+  "ancientartefact": "121",
+  "ancientkey": "10240",
+  "animalmeat": "16",
+  "animalmonitors": "62",
+  "anomalyparticles": "10270",
+  "antimattercontainmentunit": "10167",
+  "antiquejewellery": "10209",
+  "antiquities": "91",
+  "aquaponicsystems": "63",
+  "articulationmotors": "182",
+  "assaultplans": "169",
+  "atmosphericprocessors": "87",
+  "autofabricators": "65",
+  "basicmedicines": "33",
+  "battleweapons": "88",
+  "bauxite": "51",
+  "beer": "10",
+  "benitoite": "10247",
+  "bertrandite": "52",
+  "beryllium": "38",
+  "bioreducinglichen": "66",
+  "biowaste": "76",
+  "bismuth": "106",
+  "blackbox": "122",
+  "bonefragments": "10456",
+  "bootlegliquor": "95",
+  "bromellite": "148",
+  "buildingfabricators": "102",
+  "caustictissuesample": "10439",
+  "ceramiccomposites": "100",
+  "chemicalwaste": "32",
+  "clothing": "7",
+  "cmmcomposite": "140",
+  "cobalt": "39",
+  "coffee": "17",
+  "coltan": "55",
+  "combatstabilisers": "34",
+  "commercialsamples": "170",
+  "computercomponents": "67",
+  "conductivefabrics": "165",
+  "consumertechnology": "8",
+  "copper": "40",
+  "coralsap": "10451",
+  "cropharvesters": "29",
+  "cryolite": "110",
+  "cystspecimen": "10459",
+  "damagedescapepod": "10215",
+  "datacore": "10166",
+  "diplomaticbag": "171",
+  "domesticappliances": "9",
+  "earthrelics": "10210",
+  "emergencypowercells": "158",
+  "encryptedcorrespondence": "172",
+  "encrypteddatastorage": "173",
+  "energygridassembly": "149",
+  "evacuationshelter": "99",
+  "exhaustmanifold": "159",
+  "experimentalchemicals": "123",
+  "explosives": "3",
+  "fish": "18",
+  "foodcartridges": "19",
+  "fossilremnants": "10221",
+  "fruitandvegetables": "20",
+  "gallite": "56",
+  "gallium": "41",
+  "genebank": "10211",
+  "geologicalequipment": "103",
+  "geologicalsamples": "174",
+  "gold": "42",
+  "goslarite": "111",
+  "grain": "21",
+  "grandidierite": "10248",
+  "guardiancasket": "10153",
+  "guardianorb": "10154",
+  "guardianrelic": "10155",
+  "guardiantablet": "10156",
+  "guardiantotem": "10157",
+  "guardianurn": "10158",
+  "h.e.suits": "68",
+  "haematite": "10486",
+  "hafnium178": "124",
+  "hardwarediagnosticsensor": "155",
+  "heatsinkinterlink": "151",
+  "hnshockmount": "150",
+  "hostages": "175",
+  "hydrogenfuel": "4",
+  "hydrogenperoxide": "138",
+  "imperialslaves": "49",
+  "impurespiremineral": "10452",
+  "indite": "57",
+  "indium": "43",
+  "insulatingmembrane": "141",
+  "iondistributor": "160",
+  "jadeite": "168",
+  "landenrichmentsystems": "71",
+  "landmines": "118",
+  "lanthanum": "107",
+  "largesurveydatacache": "125",
+  "leather": "73",
+  "lepidolite": "58",
+  "liquidoxygen": "137",
+  "liquor": "11",
+  "lithium": "44",
+  "lithiumhydroxide": "147",
+  "lowtemperaturediamonds": "144",
+  "magneticemittercoil": "152",
+  "marineequipment": "86",
+  "medicaldiagnosticequipment": "154",
+  "metaalloys": "101",
+  "methaneclathrate": "145",
+  "methanolmonohydratecrystals": "146",
+  "microcontrollers": "156",
+  "microweavecoolinghoses": "185",
+  "microbialfurnaces": "85",
+  "militarygradefabrics": "157",
+  "militaryintelligence": "126",
+  "militaryplans": "127",
+  "mineralextractors": "31",
+  "mineraloil": "5",
+  "modularterminals": "181",
+  "moissanite": "116",
+  "molluscbraintissue": "10256",
+  "molluscfluid": "10255",
+  "molluscmembrane": "10252",
+  "molluscmycelium": "10253",
+  "molluscsofttissue": "10254",
+  "molluscspores": "10251",
+  "monazite": "10245",
+  "muonimager": "119",
+  "musgravite": "10246",
+  "mysteriousidol": "10219",
+  "nanobreakers": "167",
+  "narcotics": "12",
+  "naturalfabrics": "74",
+  "neofabricinsulation": "183",
+  "nerveagents": "96",
+  "nonlethalweapons": "78",
+  "occupiedescapepod": "129",
+  "onionheadgammastrain": "10435",
+  "organsample": "10458",
+  "osmium": "72",
+  "painite": "84",
+  "palladium": "45",
+  "performanceenhancers": "35",
+  "personaleffects": "10159",
+  "personalweapons": "79",
+  "pesticides": "6",
+  "platinum": "81",
+  "podcoretissue": "10259",
+  "poddeadtissue": "10257",
+  "podmesoglea": "10262",
+  "podoutertissue": "10260",
+  "podshelltissue": "10261",
+  "podsurfacetissue": "10258",
+  "podtissue": "10263",
+  "politicalprisoners": "177",
+  "polymers": "26",
+  "powerconverter": "153",
+  "powergenerators": "83",
+  "powertransferbus": "161",
+  "praseodymium": "143",
+  "preciousgems": "10165",
+  "progenitorcells": "36",
+  "prohibitedresearchmaterials": "10220",
+  "protectivemembranescrap": "10449",
+  "prototypetech": "130",
+  "pyrophyllite": "112",
+  "radiationbaffle": "162",
+  "rareartwork": "131",
+  "reactivearmour": "80",
+  "rebeltransmissions": "132",
+  "reinforcedmountingplate": "163",
+  "resonatingseparators": "69",
+  "rhodplumsite": "10243",
+  "robotics": "70",
+  "rockforthfertiliser": "10264",
+  "rutile": "59",
+  "samarium": "142",
+  "sap8corecontainer": "90",
+  "scientificresearch": "178",
+  "scientificsamples": "179",
+  "scrap": "77",
+  "semirefinedspiremineral": "10453",
+  "semiconductors": "28",
+  "serendibite": "10244",
+  "silver": "46",
+  "skimmercomponents": "104",
+  "slaves": "53",
+  "smallsurveydatacache": "10208",
+  "spacepioneerrelics": "10164",
+  "steel": "10487",
+  "structuralregulators": "117",
+  "superconductors": "27",
+  "surfacestabilisers": "97",
+  "survivalequipment": "164",
+  "syntheticfabrics": "75",
+  "syntheticmeat": "23",
+  "syntheticreagents": "98",
+  "taaffeite": "120",
+  "tacticaldata": "180",
+  "tantalum": "47",
+  "tea": "22",
+  "technicalblueprints": "133",
+  "telemetrysuite": "184",
+  "thallium": "108",
+  "thargoidbasilisktissuesample": "10236",
+  "thargoidbiostoragecapsule": "10450",
+  "thargoidbiologicalmatter": "10160",
+  "thargoidcyclopstissuesample": "10234",
+  "thargoidglaivetissuesample": "10441",
+  "thargoidheart": "10235",
+  "thargoidhydratissuesample": "10239",
+  "thargoidlink": "10161",
+  "thargoidmedusatissuesample": "10237",
+  "thargoidorthrustissuesample": "10438",
+  "thargoidprobe": "186",
+  "thargoidresin": "10162",
+  "thargoidscouttissuesample": "10238",
+  "thargoidscythetissuesample": "10448",
+  "thargoidsensor": "10226",
+  "thargoidtechnologysamples": "10163",
+  "thermalcoolingunits": "105",
+  "thorium": "109",
+  "timecapsule": "10212",
+  "titandeeptissuesample": "10442",
+  "titandrivecomponent": "10457",
+  "titanmawdeeptissuesample": "10445",
+  "titanmawpartialtissuesample": "10446",
+  "titanmawtissuesample": "10447",
+  "titanpartialtissuesample": "10444",
+  "titantissuesample": "10443",
+  "titanium": "48",
+  "tobacco": "13",
+  "toxicwaste": "54",
+  "tradedata": "134",
+  "trinketsofhiddenfortune": "135",
+  "tritium": "10269",
+  "unclassifiedrelic": "10437",
+  "unoccupiedescapepod": "10440",
+  "unstabledatacore": "176",
+  "uraninite": "60",
+  "uranium": "50",
+  "voidopal": "10250",
+  "water": "139",
+  "waterpurifiers": "82",
+  "wine": "14",
+  "wreckagecomponents": "10207"
+};
+
+const commodityIds = translationMap;
+function buildInaraUrl(overrides, claim) {
+	const baseParams = {
+	  formbrief: "1",
+	  pi1: "1",
+	  pi10: "3",
+	  pi11: "0",
+	  pi3: "3",
+	  pi9: "0",
+	  pi5: "0",
+	  pi12: "0",
+	  pi7: "10000",
+	  pi14: "0",
+	  ps3: "",
+	  ps1: claim.StarSystem
+	};
+	const variants = [
+	  { pi4: "0" },
+	  { pi4: "1" }
+	];
+  const params = new URLSearchParams({
+    ...baseParams,
+    ...overrides
+  });
+
+  const commodities = top5
+    .map(x => commodityIds[x.key])
+    .filter(Boolean)
+    .map(id => `&pa1%5B%5D=${id}`)
+    .join("");
+
+  return `https://inara.cz/elite/commodities/?${params.toString()}${commodities}`;
+}
+async function getnextsys(url) {
+	try {
+		const response = await fetch(
+			`https://my.alfa-bgs.workers.dev/?url=${encodeURIComponent(url)}`
+		);
+
+		if (!response.ok) {
+			throw new Error(`HTTP ${response.status}`);
+		}
+
+		const html = await response.text();
+
+		const parser = new DOMParser();
+		const doc = parser.parseFromString(html, "text/html");
+
+		const firstRow = doc.querySelector(
+			"table.tablesortercollapsed tbody tr, table.tablesorter tbody tr"
+		);
+
+		if (!firstRow) return "None";
+
+		const firstCell = firstRow.querySelector("td.wrap, th.wrap");
+
+		return firstCell ? firstCell.textContent.trim().replace(/[︎]/g, "").replace(/[]/g, "") : "None";
+
+	} catch (error) {
+		console.error("getnextsys error:", error);
+		return "None";
+	}
+}
+function normKey(str) {
+	return (str || "")
+		.toLowerCase()
+		.replace(/[\s_-]+/g, "");
+}
+let oldtop5 = [];
+let top5 = [];
+let oldsystem = [];
+let activenext1 = false;
+let activenext2 = false;
+async function buildClaimTables(claims, shipCargo, fcCargo, Market) {
+
+  const shipMap = new Map(
+    shipCargo.map(i => [
+      normKey(i.Type),
+      i.Count
+    ])
+  );
+
+  const marketMap = new Map(
+    Market.map(i => [
+      normKey(i.Type),
+      i.Count
+    ])
+  );
+	const marketTotals = new Map();
+	let nextsys = true;
+	for (const claim of claims) {
+		for (const station of (claim.DockedStations || [])) {
+			for (const need of (station.ResourcesRequired || [])) {
+				const key = normKey(need.Name_Localised);
+				if (!marketTotals.has(key)) {
+					marketTotals.set(key, {
+						name: need.Name_Localised,
+						required: 0,
+						provided: 0
+					});
+				}
+				const item = marketTotals.get(key);
+				item.required += need.RequiredAmount || 0;
+				item.provided += need.ProvidedAmount || 0;
+				const marketAmount = marketMap.get(key) || 0;
+				const ship = shipMap.get(key) || 0;
+				const fc = fcCargo.get(key) || 0;
+				const missing =
+					item.required -
+					item.provided -
+					ship -
+					fc;
+				if (missing > 0 && marketAmount > 0) {nextsys = false;}
+			}
+		}
+	}
+	// sprawdzenie czy poprzednie top5 zostało ukończone
+	let oldTop5Completed = true;
+
+	if (oldtop5.length > 0) {
+		for (const oldItem of oldtop5) {
+
+			const current = marketTotals.get(oldItem.key);
+
+			// jeśli towar już nie występuje w wymaganiach,
+			// uznajemy go za ukończony
+			if (!current) {
+				continue;
+			}
+
+			const marketAmount = marketMap.get(oldItem.key) || 0;
+			const ship = shipMap.get(oldItem.key) || 0;
+			const fc = fcCargo.get(oldItem.key) || 0;
+
+			const missing =
+				current.required -
+				current.provided -
+				ship -
+				fc;
+
+			if (missing > 0 && marketAmount > 0) {
+				oldTop5Completed = false;
+				break;
+			}
+		}
+	}
+
+	// nowe top5 budujemy tylko gdy:
+	// 1. nie ma już braków w obecnym systemie (nextsys)
+	// 2. poprzednie top5 zostało całkowicie dowiezione
+	if (nextsys === true && oldTop5Completed && !activenext1) {
+		activenext1 = true;
+		oldtop5 = [...top5];
+
+		top5 = [...marketTotals.entries()]
+			.map(([key, item]) => {
+				const fcAmount = fcCargo.get(key) || 0;
+				const shipAmount = shipMap.get(key) || 0;
+
+				const demand =
+					(item.required || 0) -
+					(item.provided || 0) -
+					fcAmount -
+					shipAmount;
+
+				return {
+					key,
+					name: item.name,
+					demand
+				};
+			})
+			.filter(x => x.demand > 0)
+			.sort((a, b) => b.demand - a.demand)
+			.slice(0, 5);
+		oldsystem = [];
+		activenext1 = false;
+	}
+
+  const container = document.createElement("div");
+
+  // =====================================
+  // SUMY DLA CAŁEGO SYSTEMU
+  // =====================================
+  let oldsys = "none";
+  const systemTotals = new Map();
+  for (const claim of claims) {
+	if (nextsys === true && oldTop5Completed && !activenext2 && oldsys !== claim.StarSystem && top5.length !== 0) {
+		activenext2 = true;
+		const urls = [
+		  {
+			url: buildInaraUrl({ pi4: "0" }, claim),
+			type: "starport"
+		  },
+		  {
+			url: buildInaraUrl({ pi4: "1" }, claim),
+			type: "surface port"
+		  }
+		];
+
+		for (const item of urls) {
+
+		  const resulttext = await getnextsys(item.url);
+
+		  if (!resulttext) continue;
+
+		  const [station, system] = resulttext
+			.split("|")
+			.map(x => x.trim());
+
+		  const NextSystemName =
+			`Jump to <a style="color: #4cd137;">${system}</a><a>, target ${item.type}</a><a style="color: #4cd137;"> ${station}</a>`;
+
+		  const ForSystemName = claim.StarSystem;
+
+		  oldsystem.push({
+			NextSystemName,
+			ForSystemName
+		  });
+
+		  console.log("log", oldsystem);
+
+		  break;
+		}
+		
+		activenext2 = false;
+	}
+	oldsys = claim.StarSystem;
+
+    const systemKey = claim.StarSystem;
+
+    if (!systemTotals.has(systemKey)) {
+      systemTotals.set(systemKey, new Map());
+    }
+
+    const totals = systemTotals.get(systemKey);
+
+    for (const station of (claim.DockedStations || [])) {
+
+      for (const need of (station.ResourcesRequired || [])) {
+
+        const key = normKey(need.Name_Localised);
+
+        if (!totals.has(key)) {
+          totals.set(key, {
+            Type: need.Name_Localised,
+            RequiredAmount: 0,
+            ProvidedAmount: 0
+          });
+        }
+
+        const material = totals.get(key);
+
+        material.RequiredAmount += need.RequiredAmount || 0;
+        material.ProvidedAmount += need.ProvidedAmount || 0;
+      }
+    }
+  }
+
+  // =====================================
+  // TABELA DLA KAŻDEJ STACJI
+  // =====================================
+
+  for (const claim of claims) {
+
+    const totals = systemTotals.get(claim.StarSystem);
+
+	const systitle = document.createElement("h2");
+	systitle.textContent =
+		`${claim.StarSystem}`;
+
+
+     container.appendChild(systitle);
+    for (const station of (claim.DockedStations || [])) {
+
+      const stationDiv = document.createElement("div");
+      stationDiv.style.marginBottom = "25px";
+
+      const title = document.createElement("h2");
+      title.textContent =
+        `${station.StationName}`;
+
+      stationDiv.appendChild(title);
+
+      const table = document.createElement("table");
+      table.border = "1";
+
+      table.innerHTML = `
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Ship</th>
+            <th>Fleet Carrier</th>
+            <th>Missing</th>
+            <th>Station</th>
+            <th>System</th>
+            <th>Market</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+
+      const tbody = table.querySelector("tbody");
+
+      for (const need of (station.ResourcesRequired || [])) {
+
+        const key = normKey(need.Name_Localised);
+
+        const ship = shipMap.get(key) || 0;
+        const fc = fcCargo.get(key) || 0;
+        const market = marketMap.get(key) || 0;
+
+        const totalSystem =
+          totals.get(key)?.RequiredAmount || 0;
+
+        const totalProvided =
+          totals.get(key)?.ProvidedAmount || 0;
+
+        const missing =
+          totalSystem -
+          totalProvided -
+          ship -
+          fc;
+
+        const row = document.createElement("tr");
+
+        row.innerHTML = `
+          <td>${need.Name_Localised}</td>
+          <td>${ship}</td>
+          <td>${fc}</td>
+          <td>${Math.max(0, missing)}</td>
+          <td>${need.RequiredAmount}</td>
+          <td>${totalSystem}</td>
+          <td>${market}</td>
+        `;
+
+        tbody.appendChild(row);
+      }
+
+      stationDiv.appendChild(table);
+      container.appendChild(stationDiv);
+    }
+  }
+
+  ws.send(JSON.stringify({
+    type: "TABLE_UPDATE",
+    data: {
+      colonisationClaims: claims,
+      shipcargo: Array.from(shipMap.entries()),
+      fcCargo: Array.from(fcCargo.entries()),
+      Market: Array.from(marketMap.entries()),
+	  NextSystems: oldsystem
+    },
+    event: "table",
+  }));
+  return container;
+}
+const ws = new WebSocket(`ws://${location.hostname}:80`);
+
+ws.onopen = () => {
+  console.log("WS connected");
+};
+
+ws.onclose = () => {
+  console.log("WS disconnected");
+};
+
+let renderQueued = false;
+async function render() {
+  const tabledata =  await buildClaimTables(
+    state.colonisationClaims,
+    state.shipcargo,
+    state.fcCargo,
+    state.Market
+  );
+  const profileBox = document.getElementById("profileBox");
+  profileBox.replaceChildren(tabledata);
+}
+async function requestRender() {
+  if (renderQueued) return;
+
+  renderQueued = true;
+
+	requestAnimationFrame(async () => {
+	  renderQueued = false;
+	  await render();
+	});
+}
+let oldCargo = [];
+let localCargo = [];
+let mapCargo = [];
+function toMap(arr) {
+  const map = new Map();
+  for (const item of arr) {
+	const localtype = normKey(item.commodity);
+    map.set(localtype, (map.get(localtype) || 0) + item.qty);
+  }
+  return map;
+}
+function applyDiff(type, diff) {
+  const map = new Map(localCargo.map(i => [i.Type, i.Count]));
+  const current = map.get(type) || 0;
+  const next = current + diff;
+
+  if (next === 0) {
+    map.delete(type);
+  } else {
+    map.set(type, next);
+  }
+
+  localCargo = [...map.entries()].map(([Type, Count]) => ({
+    Type,
+    Count
+  }));
+}
+function mergeMaps(base, diff) {
+  const result = new Map(base);
+
+  for (const [key, value] of diff.entries()) {
+    result.set(key, (result.get(key) || 0) + value);
+  }
+
+  return result;
+}
+ws.onmessage = async (msg) => {
+
+  const packet = JSON.parse(msg.data);
+
+  // ====================================
+  // LIVE STATE UPDATE
+  // ====================================
+	if (packet.type === "LIVE_DATA") {
+	  const data = packet.data ?? {};
+
+	  state.colonisationClaims = data.colonisationClaims;
+
+	  state.shipcargo = data.shipcargo ?? [];
+	  state.Market = (data.Market ?? []).map(r => ({
+		  Type: r.Type,
+		  Count: r.Stock
+		}));
+	  let CargoTransferEvent = false
+	  if (packet.event === "CargoTransfer" || packet.event === "CargoTransferBatch" || packet.event === "Cargo" || packet.event === "ColonisationContribution") {
+		CargoTransferEvent = true
+	  }
+	  if (!CargoTransferEvent){
+	    await requestRender();
+	  }
+	}
+
+  // ====================================
+  // EVENT IMPULSE
+  // ====================================
+
+	if (
+	  (packet.type === "EVENT" && packet.event === "CargoTransfer") ||
+	  (packet.type === "EVENT" && packet.event === "CargoTransferBatch") || oldCargo.length <= 0
+	) {
+
+	  document.getElementById("dashStatus").innerText =
+		"Refreshing Frontier data...";
+
+	  try {
+		const res = await apiFetch("/data");
+
+		if (!res.ok) {
+		  document.getElementById("dashStatus").innerText =
+			"Worker fetch failed";
+		  return;
+		}
+
+		const workerData = await res.json();
+
+		document.getElementById("dashStatus").innerText =
+		  "Frontier updated ✔";
+
+		const cargo = workerData.cargo ?? [];
+		// ==============================
+		// 1. MAPA AKTUALNA I POPRZEDNIA
+		// ==============================
+		// ==============================
+		// 3. TRANSFERS (REAL-TIME SYMULACJA)
+		// ==============================
+		if (packet.event === "CargoTransfer") {
+		  const transfers = packet?.data2?.Transfers;
+
+		  if (Array.isArray(transfers)) {
+			for (const t of transfers) {
+
+			  if (!t?.Type || typeof t.Count !== "number") continue;
+
+			  if (t.Direction === "tocarrier") {
+				applyDiff(t.Type, +t.Count);
+			  }
+
+			  if (t.Direction === "toship") {
+				applyDiff(t.Type, -t.Count);
+			  }
+			}
+		  }
+		}
+		if (oldCargo.length > 0) {
+			const newMap = toMap(cargo);
+			const oldMap = toMap(oldCargo);
+			// ==============================
+			// 2. RÓŻNICE BACKEND vs OLD
+			// ==============================
+			const allTypes = new Set([
+			  ...newMap.keys(),
+			  ...oldMap.keys()
+			]);
+			for (const type of allTypes) {
+			  const diff = (newMap.get(type) || 0) - (oldMap.get(type) || 0);
+			  if (diff > 0) {
+				applyDiff(type, -diff);
+			  } else if (diff < 0) {
+				applyDiff(type, -diff); // bo diff jest ujemny
+			  }
+			}
+		}
+		// ==============================
+		// 4. UPDATE OLD SNAPSHOT
+		// ==============================
+		oldCargo = cargo;
+
+		// ==============================
+		// 5. UI
+		// ==============================
+
+		const fcMap = new Map();
+
+		for (const item of cargo) {
+		  const key = normKey(item.locName);
+		  fcMap.set(key, (fcMap.get(key) || 0) + item.qty);
+		}
+		state.localMap = new Map(
+		  localCargo.map(i => [
+			normKey(i.Type),
+			i.Count
+		  ])
+		);
+		state.fcCargo = mergeMaps(fcMap, state.localMap);
+		
+		await requestRender();
+
+	  } catch (err) {
+		console.error(err);
+		document.getElementById("dashStatus").innerText =
+		  "Worker offline";
+	  }
+	}
+};
+ 
+
+// ================= INIT =================
+async function init(){
+
+  session = sessionStorage.getItem("auth_session");
+
+  if(!session) return;
+
+  await loadDashboard();
+}
+
+// ================= DASHBOARD =================
+async function loadDashboard(){
+
+  const res = await apiFetch("/me");
+  if(!res.ok) return false;
+
+  const data = await res.json();
+
+  if(!data.logged) return false;
+
+  document.getElementById("authBox").classList.add("hidden");
+  document.getElementById("dashboard").classList.remove("hidden");
+  document.getElementById("profileBox").classList.remove("hidden");
+
+  document.getElementById("userEmail").innerText =
+    "Logged as: " + data.email;
+
+  document.getElementById("frontierStatus").innerText =
+    data.frontier
+      ? "Frontier: CONNECTED ✔"
+      : "Frontier: NOT CONNECTED ✖";
+
+  return data;
+}
+
+// ================= PROFILE (ONLY JSON) =================
+async function loadProfile(){
+
+  try{
+
+    const res = await apiFetch("/data");
+    if(!res.ok) return;
+
+    const data = await res.json();
+
+    document.getElementById("profileUI").innerText =
+      JSON.stringify(data, null, 2);
+
+  }catch(err){
+    console.error(err);
+  }
+}
+
+
+// ================= AUTH =================
+async function register(){
+
+  const email = document.getElementById("email").value.trim().toLowerCase();
+  const password = document.getElementById("password").value;
+
+  const res = await apiFetch("/register",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ email, password })
+  });
+
+  const data = await res.json();
+
+  document.getElementById("authStatus").innerText =
+    data.error || "Account created ✔";
+}
+
+async function login(){
+
+  const email = document.getElementById("email").value.trim().toLowerCase();
+  const password = document.getElementById("password").value;
+
+  const res = await apiFetch("/login",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ email, password })
+  });
+
+  const data = await res.json();
+
+  if(data.error){
+    document.getElementById("authStatus").innerText = data.error;
+    return;
+  }
+
+  sessionStorage.setItem("auth_session", data.session);
+  session = data.session;
+
+  await loadDashboard();
+}
+
+
+// ================= LOGOUT =================
+async function logout(){
+
+  if(profileInterval){
+    clearInterval(profileInterval);
+    profileInterval = null;
+  }
+
+  await apiFetch("/logout",{ method:"POST" });
+  location.reload();
+}
+
+
+
+init();
+</script>
+
+</body>
+</html>
