@@ -41,7 +41,7 @@ const fileOffsets = new Map();
 
 let isInitialScan = true;
 let batchCargoTransferCount = 0;
-
+let lastevent;
 // ======================================
 // HELPERS
 // ======================================
@@ -107,17 +107,12 @@ wss.on("connection", (ws) => {
 
       // rozsyłaj do innych klientów
       broadcast(packet);
-	  broadcast({
-		type: "LIVE_DATA",
-		data: result,
-		event: eventName,
-	  });
 
     } catch (err) {
       console.error("WS message error:", err);
     }
   });
-
+  notifyFrontend(lastevent, "Market", false);
   ws.on("close", () => {
     clients.delete(ws);
   });
@@ -209,6 +204,7 @@ function processEvent(event) {
       batchCargoTransferCount++;
       return;
     }
+	lastevent = event;
 	notifyFrontend(event, "Market", false);
     return;
   } 

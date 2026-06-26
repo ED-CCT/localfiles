@@ -87,12 +87,11 @@ pre{
 <h2>Elite Dangerous Tracker</h2>
 
 <div id="authBox" class="card">
-  <h3>Login / Register</h3>
+  <h3>Login</h3>
 
   <input id="email" type="email" placeholder="Email"/>
   <input id="password" type="password" placeholder="Password"/>
 
-  <button onclick="register()">Register</button>
   <button class="secondary" onclick="login()">Login</button>
 
   <div id="authStatus" class="status"></div>
@@ -871,7 +870,7 @@ ws.onmessage = async (msg) => {
 
 	if (
 	  (packet.type === "EVENT" && packet.event === "CargoTransfer") ||
-	  (packet.type === "EVENT" && packet.event === "CargoTransferBatch") || oldCargo.length <= 0
+	  (packet.type === "EVENT" && packet.event === "CargoTransferBatch")
 	) {
 
 	  document.getElementById("dashStatus").innerText =
@@ -1024,22 +1023,6 @@ async function loadProfile(){
 
 
 // ================= AUTH =================
-async function register(){
-
-  const email = document.getElementById("email").value.trim().toLowerCase();
-  const password = document.getElementById("password").value;
-
-  const res = await apiFetch("/register",{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({ email, password })
-  });
-
-  const data = await res.json();
-
-  document.getElementById("authStatus").innerText =
-    data.error || "Account created ✔";
-}
 
 async function login(){
 
@@ -1068,12 +1051,6 @@ async function login(){
 
 // ================= LOGOUT =================
 async function logout(){
-
-  if(profileInterval){
-    clearInterval(profileInterval);
-    profileInterval = null;
-  }
-
   await apiFetch("/logout",{ method:"POST" });
   location.reload();
 }

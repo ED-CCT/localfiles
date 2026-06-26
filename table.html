@@ -11,9 +11,27 @@
 				background: #0f1115;
 				color: #e6e6e6;
 			}
+			input {
+				background: #151922;
+				border: 1px solid #2a2f3a;
+				border-radius: 10px;
+				padding: 10px;
+				color: #8aa0b6;
+			}
+			#btn {
+				background: #151922;
+				border: 1px solid #2a2f3a;
+				border-radius: 10px;
+				padding: 10px;
+				color: #8aa0b6;
+				margin-left: 10px;
+			}
 
+			#btn:hover {
+				background: #1a1f2a;
+			}
 			header {
-				padding: 12px 16px;
+				padding: 12px 12px;
 				background: #151922;
 				position: sticky;
 				top: 0;
@@ -34,7 +52,14 @@
 				padding: 12px;
 				display: flex;
 				flex-direction: column;
-				gap: 16px;
+				gap: 12px;
+			}
+
+			#container1 {
+				padding: 12px 12px 0 12px;
+				display: flex;
+				flex-direction: column;
+				gap: 12px;
 			}
 
 			.system {
@@ -89,11 +114,17 @@
 		</style>
 	</head>
 	<body>
+		<div id="container1"><div class="system"><input type="number" id="imput"><button id="btn">Update cargo capacity</button></div></div>
 		<div id="container"></div>
 		<script>
 			const ws = new WebSocket(`ws://${location.hostname}:80`);
 			const container = document.getElementById("container");
 			let lastData = null;
+			let cargocapacity = 0;
+			document.getElementById("btn").addEventListener("click", () => {
+				cargocapacity = document.getElementById("imput").value;
+				renderTable(lastData)
+			});
 			// ================= STATUS =================
 			ws.onopen = () => {console.log("Connected ✔");};
 			ws.onclose = () => {console.log("Disconnected ✖");};
@@ -202,7 +233,7 @@
 					}
 					marketRows.sort((a, b) => a.sortValue - b.sortValue);
 					rowroute.innerText = `
-						🛒 Market Summary | Courses left: ${Math.ceil(marketroute / 1232)}
+						🛒 Market Summary | Courses left: ${Math.ceil(marketroute / cargocapacity)}
 					`;
 					marketRows.forEach(row => marketBody.appendChild(row));
 					container.appendChild(marketSection);
@@ -323,7 +354,7 @@
 								normalRows.push(row);
 							}
 						}
-						stationTitle.textContent = `${station.StationName} | Courses left: ${Math.ceil(missingstation / 1232)}`;
+						stationTitle.textContent = `${station.StationName} | Courses left: ${Math.ceil(missingstation / cargocapacity)}`;
 						stationWrap.appendChild(stationTitle);
 						const table = document.createElement("table");
 						table.innerHTML = `
